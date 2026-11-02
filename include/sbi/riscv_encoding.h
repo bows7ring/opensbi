@@ -666,6 +666,21 @@
 #define CSR_MHPMCOUNTER30H		0xb9e
 #define CSR_MHPMCOUNTER31H		0xb9f
 
+/* Local test encodings, NOT architectural allocations. Keep in sync with the model. */
+#ifdef CONFIG_XPDIS_TEST
+#define CSR_XPDIS_MCTL			0x7d0
+#define CSR_XPDIS_SCTL			0x5d0
+#define CSR_XPDIS_COUNTER		0x5d1
+#define CSR_XPDIS_EVMASK			0x5d2
+#define CSR_XPDIS_EVMATCH			0x5d3
+#define CSR_XPDIS_FILTER			0x5d4
+#define CSR_XPDIS_VSCTL			0x6d0
+#define XPDIS_STATEEN			(_ULL(1) << 56)
+#define XPDIS_INHIBIT			(1UL << 1)
+#define XPDIS_CTL_MEM			(_ULL(1) << 32)
+#define XPDIS_CTL_ACC			(_ULL(1) << 33)
+#endif
+
 /* Machine Counter Setup */
 #define CSR_MCOUNTINHIBIT		0x320
 #define CSR_MCYCLECFG			0x321

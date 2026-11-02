@@ -95,6 +95,10 @@ enum sbi_hart_extensions {
 	SBI_HART_EXT_F,
 	/** Hart has D extension */
 	SBI_HART_EXT_D,
+#ifdef CONFIG_XPDIS_TEST
+	/** Hart passed local CSR-output PDIS test initialization (non-standard) */
+	SBI_HART_EXT_XPDISTEST,
+#endif
 
 	/** Maximum index of Hart extension */
 	SBI_HART_EXT_MAX,

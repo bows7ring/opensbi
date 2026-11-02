@@ -1161,9 +1161,14 @@ void sbi_pmu_set_device(const struct sbi_pmu_device *dev)
 void sbi_pmu_exit(struct sbi_scratch *scratch)
 {
 	struct sbi_pmu_hart_state *phs = pmu_get_hart_state_ptr(scratch);
+	unsigned long inhibit = 0xFFFFFFF8;
 
+#ifdef CONFIG_XPDIS_TEST
+	/* The PMU exit reset must not restart the independent PDIS counter. */
+	inhibit |= XPDIS_INHIBIT;
+#endif
 	if (sbi_hart_priv_version(scratch) >= SBI_HART_PRIV_VER_1_11)
-		csr_write(CSR_MCOUNTINHIBIT, 0xFFFFFFF8);
+		csr_write(CSR_MCOUNTINHIBIT, inhibit);
 
 	if (sbi_hart_priv_version(scratch) >= SBI_HART_PRIV_VER_1_10)
 		csr_write(CSR_MCOUNTEREN, -1);

@@ -51,6 +51,17 @@ config SBI_ECALL_PMU
 	bool "Performance Monitoring Unit extension"
 	default y
 
+config XPDIS_TEST
+	bool "Experimental RV64 PDIS initialization with temporary encodings"
+	default n
+	help
+	  Probe and initialize a CSR-output PDIS test implementation, then
+	  authorize supervisor access. Requires a matching experimental model.
+	  The CSR addresses and state-enable bit are local, non-standard values.
+	  Never enable on existing hardware without checking for CSR conflicts.
+	  This sets the shared menvcfg.CDE permission bit, but does not change
+	  the SBI PMU calls or allocate any ordinary HPM counter. RV64 only.
+
 config SBI_ECALL_DBCN
 	bool "Debug Console extension"
 	default y

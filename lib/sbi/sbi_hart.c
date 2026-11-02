@@ -29,10 +29,116 @@ void (*sbi_hart_expected_trap)(void) = &__sbi_expected_trap;
 
 unsigned long hart_features_offset;
 
+#ifdef CONFIG_XPDIS_TEST
+#if __riscv_xlen != 64
+#error "XPDIS_TEST requires RV64"
+#endif
+
+/* Only a matching model may interpret these custom CSRs as PDIS state. */
+static void hart_pdis_test_init(struct sbi_scratch *scratch)
+{
+	struct sbi_trap_info trap = { 0 };
+	unsigned long ctl, old_envcfg, old_stateen, value;
+
+	/* A device-tree string alone must not advertise a successful handoff. */
+	sbi_hart_update_extension(scratch, SBI_HART_EXT_XPDISTEST, false);
+	if (!misa_extension('S') ||
+	    sbi_hart_priv_version(scratch) < SBI_HART_PRIV_VER_1_12 ||
+	    !sbi_hart_has_extension(scratch, SBI_HART_EXT_SMSTATEEN) ||
+	    !sbi_hart_has_extension(scratch, SBI_HART_EXT_SSCSRIND) ||
+	    !sbi_hart_has_extension(scratch, SBI_HART_EXT_SSCOFPMF))
+		return;
+
+	ctl = csr_read_allowed(CSR_XPDIS_MCTL, &trap);
+	if (trap.cause || (ctl & XPDIS_CTL_MEM))
+		return;
+
+	csr_set(CSR_MCOUNTINHIBIT, XPDIS_INHIBIT);
+	if (!(csr_read(CSR_MCOUNTINHIBIT) & XPDIS_INHIBIT))
+		goto unavailable;
+
+	/* Disable all modes, custom behavior and OF before opening S access. */
+	csr_write_allowed(CSR_XPDIS_MCTL, &trap, 0);
+	if (trap.cause)
+		goto unavailable;
+	ctl = csr_read_allowed(CSR_XPDIS_MCTL, &trap);
+	if (trap.cause || (ctl & ~XPDIS_CTL_ACC))
+		goto unavailable;
+
+	old_envcfg = csr_read(CSR_MENVCFG);
+	old_stateen = csr_read(CSR_MSTATEEN0);
+	/* CDE is shared permission, not a request to switch Linux PMU drivers. */
+	csr_write(CSR_MENVCFG, old_envcfg | ENVCFG_CDE);
+	if (!(csr_read(CSR_MENVCFG) & ENVCFG_CDE))
+		goto revoke;
+	value = old_stateen | XPDIS_STATEEN | SMSTATEEN0_SVSLCT;
+	csr_write(CSR_MSTATEEN0, value);
+	value = csr_read(CSR_MSTATEEN0);
+	if ((value & (XPDIS_STATEEN | SMSTATEEN0_SVSLCT)) !=
+	    (XPDIS_STATEEN | SMSTATEEN0_SVSLCT))
+		goto revoke;
+
+	/* Do not grant Guest access or leave Guest sampling modes enabled. */
+	if (misa_extension('H')) {
+		csr_write_allowed(CSR_XPDIS_VSCTL, &trap, 0);
+		if (trap.cause)
+			goto revoke;
+		value = csr_read_allowed(CSR_XPDIS_VSCTL, &trap);
+		if (trap.cause || (value & ~XPDIS_CTL_ACC))
+			goto revoke;
+		value = csr_read_allowed(CSR_HSTATEEN0, &trap);
+		if (trap.cause)
+			goto revoke;
+		csr_write_allowed(CSR_HSTATEEN0, &trap, value & ~XPDIS_STATEEN);
+		if (trap.cause)
+			goto revoke;
+		value = csr_read_allowed(CSR_HSTATEEN0, &trap);
+		if (trap.cause || (value & XPDIS_STATEEN))
+			goto revoke;
+	}
+
+#define __pdis_clear(__csr) ({					\
+	csr_write_allowed(__csr, &trap, 0);			\
+	!trap.cause && !csr_read_allowed(__csr, &trap) && !trap.cause; \
+})
+	if (!__pdis_clear(CSR_XPDIS_COUNTER) ||
+	    !__pdis_clear(CSR_XPDIS_EVMASK) ||
+	    !__pdis_clear(CSR_XPDIS_EVMATCH) ||
+	    !__pdis_clear(CSR_XPDIS_FILTER))
+		goto revoke;
+#undef __pdis_clear
+
+	value = csr_read_allowed(CSR_XPDIS_SCTL, &trap);
+	if (trap.cause || value != ctl)
+		goto revoke;
+	value = csr_read_allowed(CSR_SISELECT, &trap);
+	if (trap.cause)
+		goto revoke;
+	value = csr_read_allowed(CSR_SCOUNTINHIBIT, &trap);
+	if (trap.cause || !(value & XPDIS_INHIBIT))
+		goto revoke;
+	if (!(csr_read(CSR_MIDELEG) & MIP_LCOFIP))
+		goto revoke;
+
+	/* Stay inhibited; Linux owns subsequent configuration and sampling. */
+	sbi_hart_update_extension(scratch, SBI_HART_EXT_XPDISTEST, true);
+	return;
+
+revoke:
+	csr_write(CSR_MSTATEEN0, old_stateen);
+	csr_write(CSR_MENVCFG, old_envcfg);
+unavailable:
+	sbi_printf("PDIS test: hart %u initialization rejected\n", current_hartid());
+}
+#else
+static inline void hart_pdis_test_init(struct sbi_scratch *scratch) { }
+#endif
+
 static void mstatus_init(struct sbi_scratch *scratch)
 {
 	int cidx;
 	unsigned long mstatus_val = 0;
+	unsigned long inhibit = 0xFFFFFFF8;
 	unsigned int mhpm_mask = sbi_hart_mhpm_mask(scratch);
 	uint64_t mhpmevent_init_val = 0;
 	uint64_t menvcfg_val, mstateen_val;
@@ -61,8 +167,12 @@ static void mstatus_init(struct sbi_scratch *scratch)
 		csr_write(CSR_MCOUNTEREN, -1);
 
 	/* All programmable counters will start running at runtime after S-mode request */
+#ifdef CONFIG_XPDIS_TEST
+	/* Keep independent PDIS stopped before probing, including hart reinit. */
+	inhibit |= XPDIS_INHIBIT;
+#endif
 	if (sbi_hart_priv_version(scratch) >= SBI_HART_PRIV_VER_1_11)
-		csr_write(CSR_MCOUNTINHIBIT, 0xFFFFFFF8);
+		csr_write(CSR_MCOUNTINHIBIT, inhibit);
 
 	/**
 	 * The mhpmeventn[h] CSR should be initialized with interrupt disabled
@@ -402,6 +512,9 @@ const struct sbi_hart_ext_data sbi_hart_ext[] = {
 	__SBI_HART_EXT_DATA(v, SBI_HART_EXT_V),
 	__SBI_HART_EXT_DATA(f, SBI_HART_EXT_F),
 	__SBI_HART_EXT_DATA(d, SBI_HART_EXT_D),
+#ifdef CONFIG_XPDIS_TEST
+	__SBI_HART_EXT_DATA(xpdistest, SBI_HART_EXT_XPDISTEST),
+#endif
 };
 
 _Static_assert(SBI_HART_EXT_MAX == array_size(sbi_hart_ext),
@@ -735,6 +848,7 @@ int sbi_hart_reinit(struct sbi_scratch *scratch)
 	int rc;
 
 	mstatus_init(scratch);
+	hart_pdis_test_init(scratch);
 
 	rc = fp_init(scratch);
 	if (rc)

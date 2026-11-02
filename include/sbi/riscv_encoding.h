@@ -675,7 +675,7 @@
 #define CSR_XPDIS_EVMATCH			0x5e3
 #define CSR_XPDIS_FILTER			0x5e4
 #define CSR_XPDIS_VSCTL			0x6d0
-#define XPDIS_STATEEN			(_ULL(1) << 56)
+#define XPDIS_STATEEN			(_ULL(1) << 55)
 #define XPDIS_INHIBIT			(1UL << 1)
 #define XPDIS_CTL_MEM			(_ULL(1) << 32)
 #define XPDIS_CTL_ACC			(_ULL(1) << 33)

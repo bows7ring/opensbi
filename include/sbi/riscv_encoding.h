@@ -669,11 +669,11 @@
 /* Local test encodings, NOT architectural allocations. Keep in sync with the model. */
 #ifdef CONFIG_XPDIS_TEST
 #define CSR_XPDIS_MCTL			0x7d0
-#define CSR_XPDIS_SCTL			0x5d0
-#define CSR_XPDIS_COUNTER		0x5d1
-#define CSR_XPDIS_EVMASK			0x5d2
-#define CSR_XPDIS_EVMATCH			0x5d3
-#define CSR_XPDIS_FILTER			0x5d4
+#define CSR_XPDIS_SCTL			0x5e0
+#define CSR_XPDIS_COUNTER		0x5e1
+#define CSR_XPDIS_EVMASK			0x5e2
+#define CSR_XPDIS_EVMATCH			0x5e3
+#define CSR_XPDIS_FILTER			0x5e4
 #define CSR_XPDIS_VSCTL			0x6d0
 #define XPDIS_STATEEN			(_ULL(1) << 56)
 #define XPDIS_INHIBIT			(1UL << 1)
